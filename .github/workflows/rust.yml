@@ -22,12 +22,13 @@ jobs:
 
     - name: Build in CentOS 7 container
       run: |
-        docker run --rm -v ${{ github.workspace }}:/workspace -w /workspace centos:7 /bin/bash -c "
+        docker run --rm -v ${{ github.workspace }}:/workspace -w /workspace centos:7 /bin/sh -c "
           curl -o /etc/yum.repos.d/CentOS-Base.repo https://mirrors.aliyun.com/repo/Centos-7.repo &&
           yum clean all && yum makecache &&
           yum -y groupinstall 'Development Tools' &&
+          echo $PWD && echo $HOME &&
           curl https://sh.rustup.rs -sSf | sh -s -- -y &&
-          export PATH=$HOME/.cargo/bin:$PATH &&
+          source $HOME/.cargo/env &&
           rustup default stable &&
           cargo build --release
         "
