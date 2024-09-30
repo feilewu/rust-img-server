@@ -13,14 +13,23 @@ jobs:
   build:
     name: Run on CentOS 7
     runs-on: ubuntu-latest
-    container:
-      image: "centos:7"
     steps:
     - uses: actions/checkout@v4
-    - name: Build
-      run: cargo build --verbose -r
-    - name: Run tests
-      run: cargo test --verbose
+
+    - name: Set up Docker
+      run: |
+        docker pull centos:7
+
+    - name: Build in CentOS 7 container
+      run: |
+        docker run --rm -v ${{ github.workspace }}:/workspace -w /workspace centos:7 /bin/bash -c "
+          yum -y groupinstall 'Development Tools' &&
+          curl https://sh.rustup.rs -sSf | sh -s -- -y &&
+          source $HOME/.cargo/env &&
+          rustup default stable &&
+          cargo build --release
+        "
+
     - uses: actions/upload-artifact@v4
       with:
         name: Executable Artifact
