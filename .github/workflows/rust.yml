@@ -11,9 +11,10 @@ env:
 
 jobs:
   build:
-
+    name: Run on CentOS 7
     runs-on: ubuntu-latest
-
+    container:
+      image: "centos:7"
     steps:
     - uses: actions/checkout@v4
     - name: Build
