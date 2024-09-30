@@ -28,6 +28,7 @@ jobs:
           yum -y groupinstall 'Development Tools' &&
           echo $PWD && echo $HOME &&
           curl https://sh.rustup.rs -sSf | sh -s -- -y &&
+          find / -name .cargo &&
           source $HOME/.cargo/env &&
           rustup default stable &&
           cargo build --release
