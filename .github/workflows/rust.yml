@@ -34,7 +34,14 @@ jobs:
           cargo build --release
         "
 
+    - name: Get version from Cargo.toml
+      id: get_version
+      run: |
+        version=$(grep '^version =' Cargo.toml | sed 's/version = "//;s/"//g')
+        echo "VERSION=${version}" >> $GITHUB_ENV
+        mv target/release/img-server target/release/img-server-v$VERSION
+
     - uses: actions/upload-artifact@v4
       with:
-        name: Executable Artifact
-        path: target/release/img-server
+        name: bin
+        path: target/release/img-server-$VERSION
