@@ -31,13 +31,16 @@ jobs:
           find / -name .cargo &&
           source /root/.cargo/env &&
           rustup default stable &&
-          cargo build --release
+          cargo build --release &&
+          chmod 777 target/*
         "
 
     - name: Get version from Cargo.toml
       id: get_version
       run: |
+        cd ${{ github.workspace }}
         version=$(grep '^version =' Cargo.toml | sed 's/version = "//;s/"//g')
+        echo $version
         echo "VERSION=${version}" >> $GITHUB_ENV
         mv target/release/img-server target/release/img-server-v$VERSION
 
