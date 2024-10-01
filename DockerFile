@@ -1,0 +1,7 @@
+From centos:centos7
+
+WORKDIR /opt/work
+
+COPY  target/release/img-server-v* .
+
+Run chmod +x /opt/work/img-server-v*

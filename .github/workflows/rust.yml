@@ -45,7 +45,16 @@ jobs:
         mv target/release/img-server target/release/img-server-v$version
         ls target/release
 
+    - name: build docker image
+      id: build_image
+      run: |
+        cd ${{ github.workspace }}
+        docker build -f ./DockerFile -t img-server:centos7_v${{ env.VERSION }}
+        docker export img-server:centos7_v${{ env.VERSION }} > img-server_centos7_v${{ env.VERSION }}.tar
+
     - uses: actions/upload-artifact@v4
       with:
-        name: bin
-        path: target/release/img-server-v${{ env.VERSION }}
+        name: artifacts
+        path: |
+          target/release/img-server-v${{ env.VERSION }}
+          img-server_centos7_v${{ env.VERSION }}.tar
