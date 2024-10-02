@@ -81,7 +81,14 @@ fn get_img_type(base64_img: &String) -> Result<String, String> {
     let img_type = base64_img.split(";").nth(0).unwrap().to_string().split(":").nth(1).unwrap().to_string();
     println!("{}", img_type);
     let suffix = img_type.split("/").nth(1).unwrap().to_string();
-    if suffix.eq("png") || suffix.eq("webp") {
+    let suffixes = vec![
+        "png".to_string(),
+        "webp".to_string(),
+        "jpg".to_string(),
+        "jpeg".to_string(),
+        "gif".to_string(),
+    ];
+    if suffixes.contains(&suffix) {
         Ok(suffix)
     } else {
         Err(format!("Unsupported image type: {}", suffix))
