@@ -50,7 +50,7 @@ jobs:
       run: |
         cd ${{ github.workspace }}
         docker build -f ./DockerFile -t img-server:centos7_v${{ env.VERSION }} .
-        docker export img-server:centos7_v${{ env.VERSION }} > img-server_centos7_v${{ env.VERSION }}.tar
+        docker save -o img-server_centos7_v${{ env.VERSION }}.tar img-server:centos7_v${{ env.VERSION }}
 
     - uses: actions/upload-artifact@v4
       with:
