@@ -7,6 +7,7 @@ EOF
 
 
 docker run --rm -v "${PWD}":/workspace -w /workspace img-build-ubuntu:"${user}" /bin/sh -c "
+    . $HOME/.cargo/env &&
     rustup default stable &&
     cargo build --release &&
     chmod 777 target/*
