@@ -1,6 +1,12 @@
 script_dir=$(dirname "$(realpath "$0")")
 
+echo "当前所在目录： "${script_dir}
+
+ls -l ./
+
 user=$(whoami)
+
+echo $user
 
 docker build -t img-build-ubuntu:"${user}" -f- . <<EOF
 FROM ubuntu:20.04
