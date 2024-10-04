@@ -11,7 +11,7 @@ echo ${script_dir}
 
 docker run --rm -v "${script_dir}":/workspace -w /workspace img-build-ubuntu:"${user}" /bin/sh -c "
     echo $PWD
-    ls .
+    ls -l ./
     . /root/.cargo/env &&
     rustup default stable &&
     cargo build --release &&
