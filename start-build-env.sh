@@ -4,7 +4,7 @@ user=$(whoami)
 
 docker build -t img-build-ubuntu:"${user}" -f- . <<EOF
 FROM ubuntu:20.04
-RUN apt-get update -y && apt-get install curl -y && apt-get install build-essential && curl https://sh.rustup.rs -sSf | sh -s -- -y
+RUN apt-get update -y && apt-get install curl -y && apt-get install build-essential -y && curl https://sh.rustup.rs -sSf | sh -s -- -y
 EOF
 
 echo ${script_dir}
