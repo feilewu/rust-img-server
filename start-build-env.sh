@@ -15,7 +15,7 @@ EOF
 
 echo ${script_dir}
 
-docker run --rm -v "${script_dir}":/workspace -w /workspace img-build-ubuntu:"${user}" /bin/sh -c "
+docker run --rm -u "${user}" -v "${script_dir}":/workspace -w /workspace img-build-ubuntu:"${user}" /bin/sh -c "
     echo $PWD
     ls -l ./
     . ${HOME}/.cargo/env &&
