@@ -6,11 +6,15 @@ ls -l ./
 
 user=$(whoami)
 
+uid=$(id -u)
+
 echo $user
+
+echo $uid
 
 docker build -t img-build-ubuntu:"${user}" -f- . <<EOF
 FROM ubuntu:20.04
-RUN useradd -m ${user}
+RUN useradd -u ${uid} -m ${user}
 RUN apt-get update -y && apt-get install curl -y && apt-get install build-essential -y
 USER ${user}
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y
