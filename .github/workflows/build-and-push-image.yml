@@ -56,6 +56,13 @@ jobs:
     steps:
      - uses: actions/checkout@v3
 
+     - name: Get version from Cargo.toml
+       id: get_version
+       run: |
+         version=$(grep '^version =' Cargo.toml | sed 's/version = "//;s/"//g')
+         echo "version:"$version
+         echo "VERSION=${version}" >> $GITHUB_ENV
+
      - name: Download All Artifacts
        uses: actions/download-artifact@v3
        with:
