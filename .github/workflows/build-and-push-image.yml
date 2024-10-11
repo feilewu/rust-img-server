@@ -28,10 +28,10 @@ jobs:
           echo $PWD && echo $HOME && \
           curl https://sh.rustup.rs -sSf | sh -s -- -y && \
           find / -name .cargo && \
-          source /root/.cargo/env && \
+          source $HOME/.cargo/env && \
           rustup default stable && \
           cargo build --release && \
-          chmod 777 target/*
+          chmod +x target/*
 
       - name: Get version from Cargo.toml
         id: get_version
