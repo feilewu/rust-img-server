@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-native-lib:
+  build-img-server:
     runs-on: ubuntu-20.04
     container: centos:7
     steps:
@@ -42,20 +42,39 @@ jobs:
           mv target/release/img-server target/release/img-server-v$version
           ls target/release
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v2
+      - name: Upload img server bin
+        uses: actions/upload-artifact@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          path: ./target/release/img-server-v${{ env.VERSION }}
+          name: img-server-bin-${{github.sha}}
+          retention-days: 1
+      
 
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v2
-        with:
-          context: .
-          file: DockerFile
-          push: true
-          tags: img-server:centos7_v${{ env.VERSION }}
+  build-image-and-push:
+    needs: build-img-server
+    runs-on: ubuntu-20.04
+    steps:
+     - uses: actions/checkout@v3
 
+     - name: Download All Artifacts
+       uses: actions/download-artifact@v3
+       with:
+          name: img-server-bin-${{github.sha}}
+          path: ./target/release
+
+     - name: Set up Docker Buildx
+       uses: docker/setup-buildx-action@v2
+
+     - name: Login to Docker Hub
+       uses: docker/login-action@v2
+       with:
+         username: ${{ secrets.DOCKERHUB_USERNAME }}
+         password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+     - name: Build and push Docker image
+       uses: docker/build-push-action@v2
+       with:
+         context: .
+         file: DockerFile
+         push: true
+         tags: img-server:centos7_v${{ env.VERSION }}
