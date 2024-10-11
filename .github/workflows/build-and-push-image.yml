@@ -77,4 +77,4 @@ jobs:
          context: .
          file: DockerFile
          push: true
-         tags: img-server:centos7_v${{ env.VERSION }}
+         tags: pfxuresources/img-server:centos7_v${{ env.VERSION }}
