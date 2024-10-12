@@ -9,4 +9,4 @@ Run chmod +x /opt/work/img-server && \
 
 user 1001
 
-CMD CMD ["/opt/work/img-server"]
+CMD ["/opt/work/img-server"]
