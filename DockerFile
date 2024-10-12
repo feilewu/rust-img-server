@@ -6,3 +6,5 @@ COPY  target/release/img-server-v* .
 
 Run chmod +x /opt/work/img-server-v* &&
     useradd -u 1001 pf && chown -R 1001:1001 /opt/work/
+
+user 1001
