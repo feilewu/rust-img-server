@@ -31,19 +31,10 @@ jobs:
           cargo build --release && \
           chmod +x target/*
 
-      - name: Get version from Cargo.toml
-        id: get_version
-        run: |
-          version=$(grep '^version =' Cargo.toml | sed 's/version = "//;s/"//g')
-          echo "version:"$version
-          echo "VERSION=${version}" >> $GITHUB_ENV
-          mv target/release/img-server target/release/img-server-v$version
-          ls target/release
-
       - name: Upload img server bin
         uses: actions/upload-artifact@v3
         with:
-          path: ./target/release/img-server-v${{ env.VERSION }}
+          path: ./target/release/img-server
           name: img-server-bin-${{github.sha}}
           retention-days: 1
       
