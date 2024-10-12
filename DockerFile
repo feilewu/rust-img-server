@@ -2,9 +2,11 @@ From centos:centos7
 
 WORKDIR /opt/work
 
-COPY  target/release/img-server-v* .
+COPY  target/release/img-server .
 
-Run chmod +x /opt/work/img-server-v* && \
+Run chmod +x /opt/work/img-server && \
     useradd -u 1001 pf && chown -R 1001:1001 /opt/work/
 
 user 1001
+
+CMD CMD ["/opt/work/img-server"]
