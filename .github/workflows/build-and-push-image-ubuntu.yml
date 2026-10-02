@@ -22,7 +22,7 @@ jobs:
         run: |
           curl https://sh.rustup.rs -sSf | sh -s -- -y
           . "$HOME/.cargo/env"
-          rustup default stable
+          rustup toolchain install --no-self-update
           rustc --version
           cargo --version
 

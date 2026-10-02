@@ -26,7 +26,7 @@ docker run --rm -u "${user}" -v "${script_dir}":/workspace -w /workspace img-bui
     echo $PWD
     ls -l ./
     . ${HOME}/.cargo/env &&
-    rustup default stable &&
+    rustup toolchain install --no-self-update &&
     cargo build --release &&
     chmod 777 target/*
 "
