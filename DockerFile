@@ -1,4 +1,4 @@
-From centos:centos7
+From ubuntu:22.04
 
 WORKDIR /opt/work
 
