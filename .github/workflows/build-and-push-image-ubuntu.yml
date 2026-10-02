@@ -2,8 +2,8 @@ name: Build image (Ubuntu)
 
 on:
   push:
-    branches:
-      - main
+    tags:
+      - '*'
 
 env:
   CARGO_TERM_COLOR: always
@@ -45,13 +45,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Get version from Cargo.toml
-        id: get_version
-        run: |
-          version=$(grep '^version =' Cargo.toml | sed 's/version = "//;s/"//g')
-          echo "version:"$version
-          echo "VERSION=${version}" >> $GITHUB_ENV
-
       - name: Download All Artifacts
         uses: actions/download-artifact@v4
         with:
@@ -73,4 +66,4 @@ jobs:
           context: .
           file: DockerFile
           push: true
-          tags: pfxuresources/img-server:ubuntu_v${{ env.VERSION }}
+          tags: pfxuresources/img-server:${{ github.ref_name }}
