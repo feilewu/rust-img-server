@@ -5,8 +5,8 @@ WORKDIR /opt/work
 COPY  target/release/img-server .
 
 Run chmod +x /opt/work/img-server && \
-    useradd -u 1001 pf && chown -R 1001:1001 /opt/work/
+    useradd -u 1000 img && chown -R 1000:1000 /opt/work/
 
-user 1001
+user 1000
 
 CMD ["/opt/work/img-server"]
