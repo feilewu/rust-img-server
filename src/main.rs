@@ -28,7 +28,7 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 
 fn validate_token(raw: Option<String>) -> Result<TokenConfig, &'static str> {
     match raw {
-        Some(token) if !token.trim().is_empty() => Ok(TokenConfig(Arc::new(token))),
+        Some(token) if !token.trim().is_empty() => Ok(TokenConfig(Arc::new(token.trim().to_string()))),
         _ => Err("UPLOAD_TOKEN environment variable is not set or empty"),
     }
 }
@@ -178,6 +178,12 @@ mod tests {
     fn validate_token_accepts_non_empty() {
         let config = validate_token(Some("abc123".to_string())).unwrap();
         assert_eq!(*config.0, "abc123".to_string());
+    }
+
+    #[test]
+    fn validate_token_trims_surrounding_whitespace() {
+        let config = validate_token(Some("  secret  ".to_string())).unwrap();
+        assert_eq!(*config.0, "secret".to_string());
     }
 
     #[test]
