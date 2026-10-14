@@ -6,6 +6,7 @@ use axum::{
     response::IntoResponse,
     routing::get,
     routing::post,
+    AddExtensionLayer,
     Json, Router,
 };
 use chrono::Local;
@@ -38,7 +39,6 @@ fn validate_token(raw: Option<String>) -> Result<TokenConfig, &'static str> {
     }
 }
 
-#[allow(dead_code)]
 fn load_token() -> Result<TokenConfig, &'static str> {
     validate_token(std::env::var("UPLOAD_TOKEN").ok())
 }
@@ -119,7 +119,7 @@ struct UploadReq {
     base64_img: String,
 }
 
-async fn upload(data: String) -> Result<Json<UploadResp>, StatusCode> {
+async fn upload(_auth: UploadAuth, data: String) -> Result<Json<UploadResp>, StatusCode> {
     let data: UploadReq = serde_json::from_str(&data).map_err(|_| StatusCode::BAD_REQUEST)?;
     let base64_img = data.base64_img;
     let suffix = get_img_type(&base64_img).map_err(|_| StatusCode::BAD_REQUEST)?;
@@ -186,11 +186,20 @@ fn is_linux() -> bool {
 
 #[tokio::main]
 async fn main() {
-    // std::env::set_var("RUST_LOG", "trace");
     env_logger::init();
+
+    let token = match load_token() {
+        Ok(token) => token,
+        Err(e) => {
+            eprintln!("{}", e);
+            std::process::exit(1);
+        }
+    };
+
     let app = Router::new()
         .route("/upload", post(upload))
-        .route("/uploads/*path", get(serve_image));
+        .route("/uploads/*path", get(serve_image))
+        .layer(AddExtensionLayer::new(token));
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
     println!("Listening on http://{}", addr);
@@ -205,6 +214,7 @@ mod tests {
     use super::*;
     use axum::body::Body;
     use axum::http::Request;
+    use tower::ServiceExt;
 
     #[test]
     fn constant_time_eq_matches_equal() {
@@ -298,5 +308,47 @@ mod tests {
     async fn extractor_rejects_empty_token() {
         let mut parts = request_with_auth(Some("Bearer "));
         assert!(UploadAuth::from_request(&mut parts).await.is_err());
+    }
+
+    fn app_with_token(token: &str) -> Router {
+        Router::new()
+            .route("/upload", post(upload))
+            .route("/uploads/*path", get(serve_image))
+            .layer(AddExtensionLayer::new(TokenConfig(Arc::new(token.to_string()))))
+    }
+
+    #[tokio::test]
+    async fn upload_route_rejects_missing_token() {
+        let request = Request::builder()
+            .method("POST")
+            .uri("/upload")
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"base64_img":"data:image/png;base64,AAAA"}"#))
+            .unwrap();
+
+        let response = app_with_token("secret").oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            response.headers().get(header::WWW_AUTHENTICATE).unwrap(),
+            "Bearer"
+        );
+    }
+
+    #[tokio::test]
+    async fn upload_route_rejects_wrong_token() {
+        let request = Request::builder()
+            .method("POST")
+            .uri("/upload")
+            .header("content-type", "application/json")
+            .header(header::AUTHORIZATION, "Bearer wrong")
+            .body(Body::from(r#"{"base64_img":"data:image/png;base64,AAAA"}"#))
+            .unwrap();
+
+        let response = app_with_token("secret").oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            response.headers().get(header::WWW_AUTHENTICATE).unwrap(),
+            "Bearer"
+        );
     }
 }
