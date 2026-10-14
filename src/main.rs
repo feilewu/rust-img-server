@@ -365,4 +365,16 @@ mod tests {
         let response = app_with_token("secret").oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
+
+    #[tokio::test]
+    async fn uploads_route_stays_public_without_token() {
+        let request = Request::builder()
+            .method("GET")
+            .uri("/uploads/nope.png")
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app_with_token("secret").oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
 }
