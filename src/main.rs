@@ -8,8 +8,36 @@ use chrono::Local;
 use hyper::{Body, Response, StatusCode};
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
+use std::sync::Arc;
 use tokio::fs;
 use uuid::Uuid;
+
+#[derive(Clone)]
+struct TokenConfig(Arc<String>);
+
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+fn validate_token(raw: Option<String>) -> Result<TokenConfig, &'static str> {
+    match raw {
+        Some(token) if !token.trim().is_empty() => Ok(TokenConfig(Arc::new(token))),
+        _ => Err("UPLOAD_TOKEN environment variable is not set or empty"),
+    }
+}
+
+#[allow(dead_code)]
+fn load_token() -> Result<TokenConfig, &'static str> {
+    validate_token(std::env::var("UPLOAD_TOKEN").ok())
+}
+
 async fn serve_image(Path(path): Path<String>) -> Result<Response<Body>, String> {
     if path.find("..").is_some(){
         return Ok(hyper::Response::builder()
@@ -120,4 +148,50 @@ async fn main() {
         .serve(app.into_make_service())
         .await
         .unwrap();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn constant_time_eq_matches_equal() {
+        assert!(constant_time_eq(b"secret", b"secret"));
+    }
+
+    #[test]
+    fn constant_time_eq_rejects_different_same_len() {
+        assert!(!constant_time_eq(b"secret", b"secreT"));
+    }
+
+    #[test]
+    fn constant_time_eq_rejects_different_len() {
+        assert!(!constant_time_eq(b"secret", b"secre"));
+    }
+
+    #[test]
+    fn constant_time_eq_matches_empty() {
+        assert!(constant_time_eq(b"", b""));
+    }
+
+    #[test]
+    fn validate_token_accepts_non_empty() {
+        let config = validate_token(Some("abc123".to_string())).unwrap();
+        assert_eq!(*config.0, "abc123".to_string());
+    }
+
+    #[test]
+    fn validate_token_rejects_none() {
+        assert!(validate_token(None).is_err());
+    }
+
+    #[test]
+    fn validate_token_rejects_empty() {
+        assert!(validate_token(Some(String::new())).is_err());
+    }
+
+    #[test]
+    fn validate_token_rejects_whitespace_only() {
+        assert!(validate_token(Some("   ".to_string())).is_err());
+    }
 }
