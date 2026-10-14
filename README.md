@@ -4,7 +4,9 @@
 ## 环境变量
 
 - `UPLOAD_TOKEN`：上传接口鉴权 token。服务启动时必须提供，否则启动失败。
-  客户端调用 `POST /upload` 时需携带请求头 `Authorization: Bearer <token>`。
+  客户端调用 `POST /upload` 时需携带请求头 `Authorization: Bearer <token>`；
+  token 缺失或不正确时返回 `401 Unauthorized`。
+- 读取接口 `GET /uploads/*path` 无需鉴权，可直接访问。
 
 
 ## docker部署
