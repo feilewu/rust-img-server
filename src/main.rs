@@ -1,5 +1,9 @@
+use async_trait::async_trait;
 use axum::{
-    extract::Path,
+    body::{Bytes, Empty},
+    extract::{FromRequest, Path, RequestParts},
+    http::{header, HeaderMap, HeaderValue},
+    response::IntoResponse,
     routing::get,
     routing::post,
     Json, Router,
@@ -7,6 +11,7 @@ use axum::{
 use chrono::Local;
 use hyper::{Body, Response, StatusCode};
 use serde::{Deserialize, Serialize};
+use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::fs;
@@ -36,6 +41,51 @@ fn validate_token(raw: Option<String>) -> Result<TokenConfig, &'static str> {
 #[allow(dead_code)]
 fn load_token() -> Result<TokenConfig, &'static str> {
     validate_token(std::env::var("UPLOAD_TOKEN").ok())
+}
+
+struct Unauthorized;
+
+impl IntoResponse for Unauthorized {
+    type Body = Empty<Bytes>;
+    type BodyError = Infallible;
+
+    fn into_response(self) -> Response<Self::Body> {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::WWW_AUTHENTICATE, HeaderValue::from_static("Bearer"));
+        (StatusCode::UNAUTHORIZED, headers, ()).into_response()
+    }
+}
+
+struct UploadAuth;
+
+#[async_trait]
+impl<B> FromRequest<B> for UploadAuth
+where
+    B: Send,
+{
+    type Rejection = Unauthorized;
+
+    async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
+        let expected = req
+            .extensions()
+            .and_then(|ext| ext.get::<TokenConfig>())
+            .ok_or(Unauthorized)?
+            .0
+            .clone();
+
+        let provided = req
+            .headers()
+            .and_then(|headers| headers.get(header::AUTHORIZATION))
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.strip_prefix("Bearer "))
+            .ok_or(Unauthorized)?;
+
+        if constant_time_eq(provided.as_bytes(), expected.as_bytes()) {
+            Ok(UploadAuth)
+        } else {
+            Err(Unauthorized)
+        }
+    }
 }
 
 async fn serve_image(Path(path): Path<String>) -> Result<Response<Body>, String> {
@@ -153,6 +203,8 @@ async fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::body::Body;
+    use axum::http::Request;
 
     #[test]
     fn constant_time_eq_matches_equal() {
@@ -199,5 +251,52 @@ mod tests {
     #[test]
     fn validate_token_rejects_whitespace_only() {
         assert!(validate_token(Some("   ".to_string())).is_err());
+    }
+
+    fn request_with_auth(value: Option<&str>) -> RequestParts<Body> {
+        let mut builder = Request::builder().method("POST").uri("/upload");
+        if let Some(v) = value {
+            builder = builder.header(header::AUTHORIZATION, v);
+        }
+        let mut req = builder.body(Body::empty()).unwrap();
+        req.extensions_mut()
+            .insert(TokenConfig(Arc::new("secret".to_string())));
+        RequestParts::new(req)
+    }
+
+    #[tokio::test]
+    async fn extractor_accepts_valid_token() {
+        let mut parts = request_with_auth(Some("Bearer secret"));
+        assert!(UploadAuth::from_request(&mut parts).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn extractor_rejects_missing_header() {
+        let mut parts = request_with_auth(None);
+        assert!(UploadAuth::from_request(&mut parts).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn extractor_rejects_wrong_token() {
+        let mut parts = request_with_auth(Some("Bearer wrong"));
+        assert!(UploadAuth::from_request(&mut parts).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn extractor_rejects_non_bearer_scheme() {
+        let mut parts = request_with_auth(Some("Basic secret"));
+        assert!(UploadAuth::from_request(&mut parts).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn extractor_rejects_bare_token_without_scheme() {
+        let mut parts = request_with_auth(Some("secret"));
+        assert!(UploadAuth::from_request(&mut parts).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn extractor_rejects_empty_token() {
+        let mut parts = request_with_auth(Some("Bearer "));
+        assert!(UploadAuth::from_request(&mut parts).await.is_err());
     }
 }
