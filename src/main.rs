@@ -351,4 +351,18 @@ mod tests {
             "Bearer"
         );
     }
+
+    #[tokio::test]
+    async fn upload_route_accepts_valid_token_and_reaches_handler() {
+        let request = Request::builder()
+            .method("POST")
+            .uri("/upload")
+            .header("content-type", "application/json")
+            .header(header::AUTHORIZATION, "Bearer secret")
+            .body(Body::from("not-json"))
+            .unwrap();
+
+        let response = app_with_token("secret").oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
 }
