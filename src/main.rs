@@ -9,7 +9,7 @@ use axum::{
     AddExtensionLayer, Json, Router,
 };
 use chrono::Local;
-use hyper::{Body, Response, StatusCode};
+use hyper::{body::HttpBody, Body, Response, StatusCode};
 use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
 use std::net::SocketAddr;
@@ -118,12 +118,64 @@ struct UploadReq {
     base64_img: String,
 }
 
-async fn upload(_auth: UploadAuth, data: String) -> Result<Json<UploadResp>, StatusCode> {
-    let data: UploadReq = serde_json::from_str(&data).map_err(|_| StatusCode::BAD_REQUEST)?;
+/// 单次请求的 JSON body 上限（含 base64 编码开销）。
+const MAX_UPLOAD_BODY_BYTES: usize = 10 * 1024 * 1024;
+/// 解码后的图片大小上限。
+const MAX_IMAGE_BYTES: usize = 7 * 1024 * 1024;
+
+/// 带上限的请求体：先看 `Content-Length`，再按实际读取量兜底，超限返回 413。
+struct UploadBody(Vec<u8>);
+
+#[async_trait]
+impl FromRequest<Body> for UploadBody {
+    type Rejection = StatusCode;
+
+    async fn from_request(req: &mut RequestParts<Body>) -> Result<Self, Self::Rejection> {
+        if let Some(length) = req
+            .headers()
+            .and_then(|headers| headers.get(header::CONTENT_LENGTH))
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.parse::<u64>().ok())
+        {
+            if length > MAX_UPLOAD_BODY_BYTES as u64 {
+                return Err(StatusCode::PAYLOAD_TOO_LARGE);
+            }
+        }
+
+        let body = req.take_body().ok_or(StatusCode::BAD_REQUEST)?;
+        Ok(Self(read_limited(body, MAX_UPLOAD_BODY_BYTES).await?))
+    }
+}
+
+async fn read_limited(mut body: Body, max: usize) -> Result<Vec<u8>, StatusCode> {
+    let mut data = Vec::new();
+    while let Some(chunk) = body.data().await {
+        let chunk = chunk.map_err(|_| StatusCode::BAD_REQUEST)?;
+        if data.len() + chunk.len() > max {
+            return Err(StatusCode::PAYLOAD_TOO_LARGE);
+        }
+        data.extend_from_slice(&chunk);
+    }
+    Ok(data)
+}
+
+fn decode_image(payload: &str, max: usize) -> Result<Vec<u8>, StatusCode> {
+    let data = base64::decode(payload).map_err(|_| StatusCode::BAD_REQUEST)?;
+    if data.len() > max {
+        return Err(StatusCode::PAYLOAD_TOO_LARGE);
+    }
+    Ok(data)
+}
+
+async fn upload(
+    _auth: UploadAuth,
+    UploadBody(body): UploadBody,
+) -> Result<Json<UploadResp>, StatusCode> {
+    let data: UploadReq = serde_json::from_slice(&body).map_err(|_| StatusCode::BAD_REQUEST)?;
     let base64_img = data.base64_img;
     let suffix = get_img_type(&base64_img).map_err(|_| StatusCode::BAD_REQUEST)?;
     let (_, payload) = base64_img.split_once(',').ok_or(StatusCode::BAD_REQUEST)?;
-    let data = base64::decode(payload).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let data = decode_image(payload, MAX_IMAGE_BYTES)?;
     let fmt = "%Y-%m-%d";
     let mut now = Local::now().format(fmt).to_string();
     if is_linux() {
@@ -421,5 +473,53 @@ mod tests {
         let request = upload_request(r#"{"base64_img":"data:image/png;base64,@@@@"}"#);
         let response = app_with_token("secret").oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn upload_route_rejects_oversized_content_length() {
+        let request = Request::builder()
+            .method("POST")
+            .uri("/upload")
+            .header("content-type", "application/json")
+            .header(header::AUTHORIZATION, "Bearer secret")
+            .header(
+                header::CONTENT_LENGTH,
+                (MAX_UPLOAD_BODY_BYTES + 1).to_string(),
+            )
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app_with_token("secret").oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    #[tokio::test]
+    async fn read_limited_rejects_body_over_limit() {
+        let body = Body::from(vec![0u8; 32]);
+        assert_eq!(
+            read_limited(body, 16).await.unwrap_err(),
+            StatusCode::PAYLOAD_TOO_LARGE
+        );
+    }
+
+    #[tokio::test]
+    async fn read_limited_accepts_body_within_limit() {
+        let body = Body::from(vec![0u8; 8]);
+        assert_eq!(read_limited(body, 16).await.unwrap().len(), 8);
+    }
+
+    #[test]
+    fn decode_image_rejects_image_over_limit() {
+        let payload = base64::encode(vec![0u8; 32]);
+        assert_eq!(
+            decode_image(&payload, 16).unwrap_err(),
+            StatusCode::PAYLOAD_TOO_LARGE
+        );
+    }
+
+    #[test]
+    fn decode_image_accepts_image_within_limit() {
+        let payload = base64::encode(vec![0u8; 32]);
+        assert_eq!(decode_image(&payload, 32).unwrap().len(), 32);
     }
 }

@@ -26,8 +26,9 @@ description: Review checklist for rust-img-server changes — auth boundary, pat
 
 ## 4. 资源与滥用
 
-- 是否有请求体大小上限、单文件大小上限、并发/频率限制？当前缺失时，至少在评审里指出风险而不是默认放行。
-- base64 解码是整块进内存，超大 body 会放大内存占用。
+- 已实现：请求体 ≤ 10 MiB（`Content-Length` + 流式计数双保险）、解码后图片 ≤ 7 MiB，超限返回 `413`。
+- 仍缺：并发上传数/速率限制；并发大请求仍可能叠加内存占用，公开部署前要评估。
+- base64 解码仍整块进内存，但已被 body 上限约束。
 
 ## 5. 测试
 

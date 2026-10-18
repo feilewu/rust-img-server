@@ -38,7 +38,7 @@ UPLOAD_TOKEN=secret cargo run --bin img-server
   `{"base64_img":"data:image/png;base64,..."}`
   支持 png / webp / jpg / jpeg / gif；写 `uploads/YYYY/MM/DD/<uuid>.<ext>`，返回 `{"uri":"/uploads/..."}`。
 - `GET /uploads/*path` 公开、无鉴权，从工作目录下的 `uploads/` 读取。
-- 失败语义：未带/错 token → `401`（带 `WWW-Authenticate: Bearer`）；JSON 非法或类型不支持 → `400`。
+- 失败语义：未带/错 token → `401`（带 `WWW-Authenticate: Bearer`）；JSON 非法或类型不支持 → `400`；请求体超 10 MiB 或图片超 7 MiB → `413`。
 
 冒烟测试：
 
@@ -57,6 +57,7 @@ curl -s -X POST http://127.0.0.1:3000/upload \
 - 这是 axum **0.3** API（`FromRequest` + `RequestParts`、`AddExtensionLayer`、`hyper::Body`）。不要照搬 0.6+ 的 `State`/`axum::extract::Request` 写法。
 - 小功能优先不加新依赖；鉴权就是手写 `FromRequest` 提取器的先例。
 - 请求路径上不允许 `unwrap/expect`：畸形 data URL、base64 解码失败返回 `400`，建目录/写文件失败返回 `500`，并已有对应测试。
+- 上传大小常量：`MAX_UPLOAD_BODY_BYTES`（10 MiB）、`MAX_IMAGE_BYTES`（7 MiB）。新增读取 body 的入口时复用 `UploadBody` 提取器，不要直接用 `String`/`Bytes` 把请求体无上限读进内存。
 - 日期目录用服务器本地时区（`Local::now()`），Linux 下把 `-` 换成 `/`；`is_linux()` 只有 windows/linux 两个 cfg，macOS 上会编译失败。
 - `uploads/` 已在 `.gitignore`，不要提交测试产物。
 

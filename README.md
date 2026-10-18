@@ -13,6 +13,13 @@ push 到任意分支会自动跑格式检查、clippy、单元测试和二进制
 - 读取接口 `GET /uploads/*path` 无需鉴权，可直接访问。
 
 
+## 上传限制
+
+- 请求 JSON body ≤ **10 MiB**（含 base64 编码开销）
+- 解码后的图片 ≤ **7 MiB**
+- 超限返回 `413 Payload Too Large`，不会落盘
+
+
 ## docker 部署
 
 镜像为多架构 manifest（`linux/amd64` + `linux/arm64`），`docker pull` 会按宿主机架构自动选择；

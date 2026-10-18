@@ -100,4 +100,12 @@ jobs:
           code=$(curl -s --path-as-is -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/uploads/../Cargo.toml)
           [ "$code" = "404" ] || { echo "expected 404 for traversal, got $code"; exit 1; }
 
+          # 超过 10 MiB 的请求体必须 413
+          python3 -c 'import json; print(json.dumps({"base64_img":"data:image/png;base64,"+"A"*(11*1024*1024)}))' > /tmp/oversized.json
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:3000/upload \
+            -H 'authorization: Bearer secret' \
+            -H 'content-type: application/json' \
+            --data-binary @/tmp/oversized.json)
+          [ "$code" = "413" ] || { echo "expected 413 for oversized body, got $code"; exit 1; }
+
           echo "smoke test passed"
