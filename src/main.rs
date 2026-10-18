@@ -94,8 +94,7 @@ async fn serve_image(Path(path): Path<String>) -> Result<Response<Body>, String>
         return Ok(hyper::Response::builder()
             .status(StatusCode::NOT_FOUND)
             .body(Body::from("Not Found"))
-            .unwrap()
-            .into());
+            .unwrap());
     }
 
     let path = format!("uploads{}", path);
@@ -105,8 +104,7 @@ async fn serve_image(Path(path): Path<String>) -> Result<Response<Body>, String>
         Ok(hyper::Response::builder()
             .status(StatusCode::NOT_FOUND)
             .body(Body::from("Not Found"))
-            .unwrap()
-            .into())
+            .unwrap())
     }
 }
 
@@ -144,36 +142,27 @@ async fn upload(_auth: UploadAuth, data: String) -> Result<Json<UploadResp>, Sta
 
     let mut uri = String::from("/uploads");
     let path_spilt = "/";
-    uri.push_str(&path_spilt);
+    uri.push_str(path_spilt);
     uri.push_str(&now.replace("\\", "/"));
-    uri.push_str(&path_spilt);
+    uri.push_str(path_spilt);
     uri.push_str(&file_name);
 
-    Ok(Json(UploadResp {
-        uri: format!("{}", uri.to_string()),
-    }))
+    Ok(Json(UploadResp { uri }))
 }
 
-fn get_img_type(base64_img: &String) -> Result<String, String> {
+fn get_img_type(base64_img: &str) -> Result<String, String> {
     let img_type = base64_img
-        .split(";")
-        .nth(0)
+        .split(';')
+        .next()
         .unwrap()
-        .to_string()
-        .split(":")
+        .split(':')
         .nth(1)
         .unwrap()
         .to_string();
     println!("{}", img_type);
-    let suffix = img_type.split("/").nth(1).unwrap().to_string();
-    let suffixes = vec![
-        "png".to_string(),
-        "webp".to_string(),
-        "jpg".to_string(),
-        "jpeg".to_string(),
-        "gif".to_string(),
-    ];
-    if suffixes.contains(&suffix) {
+    let suffix = img_type.split('/').nth(1).unwrap().to_string();
+    let suffixes = ["png", "webp", "jpg", "jpeg", "gif"];
+    if suffixes.contains(&suffix.as_str()) {
         Ok(suffix)
     } else {
         Err(format!("Unsupported image type: {}", suffix))
