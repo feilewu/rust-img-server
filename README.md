@@ -17,6 +17,7 @@ push 到任意分支会自动跑格式检查、clippy、单元测试和二进制
 
 - 请求 JSON body ≤ **10 MiB**（含 base64 编码开销）
 - 解码后的图片 ≤ **7 MiB**
+- 同时处理的上传请求 ≤ **8** 个；超过时最多排队 2 秒，仍无空闲返回 `429 Too Many Requests`（带 `Retry-After: 1`）
 - 超限返回 `413 Payload Too Large`，不会落盘
 
 

@@ -26,9 +26,9 @@ description: Review checklist for rust-img-server changes — auth boundary, pat
 
 ## 4. 资源与滥用
 
-- 已实现：请求体 ≤ 10 MiB（`Content-Length` + 流式计数双保险）、解码后图片 ≤ 7 MiB，超限返回 `413`。
-- 仍缺：并发上传数/速率限制；并发大请求仍可能叠加内存占用，公开部署前要评估。
-- base64 解码仍整块进内存，但已被 body 上限约束。
+- 已实现：请求体 ≤ 10 MiB（`Content-Length` + 流式计数双保险）、解码后图片 ≤ 7 MiB、上传并发 ≤ 8，超限分别返回 `413` / `429`。
+- 仍缺：per-IP 速率限制和磁盘配额；公开部署建议在反向代理层补速率限制。
+- base64 解码仍整块进内存，但已被 body 上限和并发上限共同约束。
 
 ## 5. 测试
 

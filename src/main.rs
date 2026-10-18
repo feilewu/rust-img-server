@@ -15,6 +15,8 @@ use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::fs;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+use tokio::time::{timeout, Duration};
 use uuid::Uuid;
 
 #[derive(Clone)]
@@ -122,6 +124,81 @@ struct UploadReq {
 const MAX_UPLOAD_BODY_BYTES: usize = 10 * 1024 * 1024;
 /// 解码后的图片大小上限。
 const MAX_IMAGE_BYTES: usize = 7 * 1024 * 1024;
+/// 同时处理的上传请求数上限，约等于内存峰值的除数。
+const MAX_CONCURRENT_UPLOADS: usize = 8;
+/// 拿不到上传许可时的最长排队时间，超时返回 429。
+const UPLOAD_QUEUE_TIMEOUT: Duration = Duration::from_secs(2);
+
+#[derive(Clone)]
+struct UploadLimiter {
+    semaphore: Arc<Semaphore>,
+    queue_timeout: Duration,
+}
+
+impl UploadLimiter {
+    fn new(permits: usize) -> Self {
+        Self {
+            semaphore: Arc::new(Semaphore::new(permits)),
+            queue_timeout: UPLOAD_QUEUE_TIMEOUT,
+        }
+    }
+
+    #[cfg(test)]
+    fn with_timeout(permits: usize, queue_timeout: Duration) -> Self {
+        Self {
+            semaphore: Arc::new(Semaphore::new(permits)),
+            queue_timeout,
+        }
+    }
+}
+
+enum UploadRejection {
+    Busy,
+    Misconfigured,
+}
+
+impl IntoResponse for UploadRejection {
+    type Body = Empty<Bytes>;
+    type BodyError = Infallible;
+
+    fn into_response(self) -> Response<Self::Body> {
+        match self {
+            Self::Busy => {
+                let mut headers = HeaderMap::new();
+                headers.insert(header::RETRY_AFTER, HeaderValue::from_static("1"));
+                (StatusCode::TOO_MANY_REQUESTS, headers, ()).into_response()
+            }
+            Self::Misconfigured => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        }
+    }
+}
+
+/// 上传并发许可：在读取 body 之前获取，避免大请求无限制地同时进内存。
+struct UploadPermit(#[allow(dead_code)] OwnedSemaphorePermit);
+
+#[async_trait]
+impl FromRequest<Body> for UploadPermit {
+    type Rejection = UploadRejection;
+
+    async fn from_request(req: &mut RequestParts<Body>) -> Result<Self, Self::Rejection> {
+        let limiter = req
+            .extensions()
+            .and_then(|ext| ext.get::<UploadLimiter>())
+            .cloned()
+            .ok_or(UploadRejection::Misconfigured)?;
+
+        match timeout(
+            limiter.queue_timeout,
+            limiter.semaphore.clone().acquire_owned(),
+        )
+        .await
+        {
+            Ok(Ok(permit)) => Ok(Self(permit)),
+            Ok(Err(_)) => Err(UploadRejection::Misconfigured),
+            Err(_) => Err(UploadRejection::Busy),
+        }
+    }
+}
 
 /// 带上限的请求体：先看 `Content-Length`，再按实际读取量兜底，超限返回 413。
 struct UploadBody(Vec<u8>);
@@ -169,6 +246,7 @@ fn decode_image(payload: &str, max: usize) -> Result<Vec<u8>, StatusCode> {
 
 async fn upload(
     _auth: UploadAuth,
+    _permit: UploadPermit,
     UploadBody(body): UploadBody,
 ) -> Result<Json<UploadResp>, StatusCode> {
     let data: UploadReq = serde_json::from_slice(&body).map_err(|_| StatusCode::BAD_REQUEST)?;
@@ -244,7 +322,10 @@ async fn main() {
     let app = Router::new()
         .route("/upload", post(upload))
         .route("/uploads/*path", get(serve_image))
-        .layer(AddExtensionLayer::new(token));
+        .layer(AddExtensionLayer::new(token))
+        .layer(AddExtensionLayer::new(UploadLimiter::new(
+            MAX_CONCURRENT_UPLOADS,
+        )));
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
     println!("Listening on http://{}", addr);
@@ -356,12 +437,17 @@ mod tests {
     }
 
     fn app_with_token(token: &str) -> Router {
+        app_with_token_and_limiter(token, UploadLimiter::new(MAX_CONCURRENT_UPLOADS))
+    }
+
+    fn app_with_token_and_limiter(token: &str, limiter: UploadLimiter) -> Router {
         Router::new()
             .route("/upload", post(upload))
             .route("/uploads/*path", get(serve_image))
             .layer(AddExtensionLayer::new(TokenConfig(Arc::new(
                 token.to_string(),
             ))))
+            .layer(AddExtensionLayer::new(limiter))
     }
 
     #[tokio::test]
@@ -521,5 +607,54 @@ mod tests {
     fn decode_image_accepts_image_within_limit() {
         let payload = base64::encode(vec![0u8; 32]);
         assert_eq!(decode_image(&payload, 32).unwrap().len(), 32);
+    }
+
+    #[tokio::test]
+    async fn upload_route_returns_429_when_all_permits_are_held() {
+        let limiter = UploadLimiter::with_timeout(1, std::time::Duration::from_millis(50));
+        let held = limiter.semaphore.clone().acquire_owned().await.unwrap();
+        let app = app_with_token_and_limiter("secret", limiter);
+
+        let request = upload_request(r#"{"base64_img":"data:image/png;base64,AAAA"}"#);
+        let response = app.oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(response.headers().get(header::RETRY_AFTER).unwrap(), "1");
+        drop(held);
+    }
+
+    #[tokio::test]
+    async fn upload_waits_for_permit_and_then_proceeds() {
+        let limiter = UploadLimiter::with_timeout(1, std::time::Duration::from_secs(1));
+        let held = limiter.semaphore.clone().acquire_owned().await.unwrap();
+        let app = app_with_token_and_limiter("secret", limiter);
+
+        let handle = tokio::spawn(async move {
+            let request = upload_request(r#"{"base64_img":"data:image/png;base64,@@@@"}"#);
+            app.oneshot(request).await.unwrap().status()
+        });
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        drop(held);
+
+        assert_eq!(handle.await.unwrap(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn unauthorized_upload_does_not_take_a_permit() {
+        let limiter = UploadLimiter::with_timeout(1, std::time::Duration::from_millis(50));
+        let held = limiter.semaphore.clone().acquire_owned().await.unwrap();
+        let app = app_with_token_and_limiter("secret", limiter);
+
+        let request = Request::builder()
+            .method("POST")
+            .uri("/upload")
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"base64_img":"data:image/png;base64,AAAA"}"#))
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        drop(held);
     }
 }
