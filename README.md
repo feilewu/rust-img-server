@@ -1,5 +1,9 @@
 # rust-img-server
 
+[![CI](https://github.com/feilewu/rust-img-server/actions/workflows/ci.yml/badge.svg)](https://github.com/feilewu/rust-img-server/actions/workflows/ci.yml)
+
+push 到任意分支会自动跑格式检查、clippy、单元测试和二进制冒烟（amd64 + arm64），不产生任何镜像或构建产物。
+
 
 ## 环境变量
 

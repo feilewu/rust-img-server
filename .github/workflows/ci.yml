@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-22.04
+          - ubuntu-22.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        run: |
+          curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal
+          . "$HOME/.cargo/env"
+          rustc --version
+          rustup component add clippy rustfmt
+
+      - name: Check formatting
+        run: |
+          . "$HOME/.cargo/env"
+          cargo fmt --check
+
+      - name: Clippy
+        run: |
+          . "$HOME/.cargo/env"
+          cargo clippy --bin img-server -- -D warnings
+
+      - name: Unit tests
+        run: |
+          . "$HOME/.cargo/env"
+          cargo test --bin img-server
+
+      - name: Release build
+        run: |
+          . "$HOME/.cargo/env"
+          cargo build --release
+
+      - name: Smoke test
+        run: |
+          set -euo pipefail
+          UPLOAD_TOKEN=secret ./target/release/img-server &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+
+          # 等待服务就绪：读取不存在的文件应返回 404
+          code=000
+          for _ in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/uploads/nope.png || true)
+            [ "$code" = "404" ] && break
+            sleep 0.5
+          done
+          [ "$code" = "404" ] || { echo "server did not become ready (last code: $code)"; exit 1; }
+
+          # 未带 token 的上传必须 401
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:3000/upload \
+            -H 'content-type: application/json' -d '{"base64_img":"data:image/png;base64,iVBORw0KGgo="}')
+          [ "$code" = "401" ] || { echo "expected 401, got $code"; exit 1; }
+
+          # 带 token 上传必须成功并返回可读取的 uri
+          response=$(curl -s -X POST http://127.0.0.1:3000/upload \
+            -H 'authorization: Bearer secret' \
+            -H 'content-type: application/json' \
+            -d '{"base64_img":"data:image/png;base64,iVBORw0KGgo="}')
+          uri=$(printf '%s' "$response" | python3 -c 'import json,sys; print(json.load(sys.stdin)["uri"])')
+          [ -n "$uri" ] || { echo "upload returned no uri: $response"; exit 1; }
+
+          code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:3000$uri")
+          [ "$code" = "200" ] || { echo "expected 200 reading $uri, got $code"; exit 1; }
+
+          # 不支持的图片类型必须 400，而不是 panic
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:3000/upload \
+            -H 'authorization: Bearer secret' \
+            -H 'content-type: application/json' \
+            -d '{"base64_img":"data:image/bmp;base64,AAAA"}')
+          [ "$code" = "400" ] || { echo "expected 400, got $code"; exit 1; }
+
+          # 路径穿越必须 404
+          code=$(curl -s --path-as-is -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/uploads/../Cargo.toml)
+          [ "$code" = "404" ] || { echo "expected 404 for traversal, got $code"; exit 1; }
+
+          echo "smoke test passed"

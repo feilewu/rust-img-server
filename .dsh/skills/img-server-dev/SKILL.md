@@ -68,3 +68,5 @@ curl -s -X POST http://127.0.0.1:3000/upload \
 4. `cargo build`（或 `--release`，看是否动到部署）；
 5. 改了路由/鉴权就跑上面的 curl 冒烟；
 6. 需要出镜像时转 `img-server-release` skill。
+
+CI（`.github/workflows/ci.yml`）在 push 时会在 amd64、arm64 两个 runner 上跑 1–5，push 后可在 Actions 里确认。
