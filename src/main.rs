@@ -122,8 +122,8 @@ async fn upload(_auth: UploadAuth, data: String) -> Result<Json<UploadResp>, Sta
     let data: UploadReq = serde_json::from_str(&data).map_err(|_| StatusCode::BAD_REQUEST)?;
     let base64_img = data.base64_img;
     let suffix = get_img_type(&base64_img).map_err(|_| StatusCode::BAD_REQUEST)?;
-    let data = base64::decode(base64_img.split(",").nth(1).unwrap())
-        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    let (_, payload) = base64_img.split_once(',').ok_or(StatusCode::BAD_REQUEST)?;
+    let data = base64::decode(payload).map_err(|_| StatusCode::BAD_REQUEST)?;
     let fmt = "%Y-%m-%d";
     let mut now = Local::now().format(fmt).to_string();
     if is_linux() {
@@ -132,13 +132,13 @@ async fn upload(_auth: UploadAuth, data: String) -> Result<Json<UploadResp>, Sta
         now = now.replace("-", "\\");
     }
     let base_path = std::path::Path::new("uploads").join(&now);
-    println!("{}", base_path.to_str().unwrap());
-    if !&base_path.exists() {
-        fs::create_dir_all(&base_path).await.unwrap();
-    }
+    fs::create_dir_all(&base_path)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let file_name = format!("{}.{}", Uuid::new_v4(), suffix);
-    // let filename = format!("uploads/1.png");
-    fs::write(&base_path.join(&file_name), data).await.unwrap();
+    fs::write(&base_path.join(&file_name), data)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let mut uri = String::from("/uploads");
     let path_spilt = "/";
@@ -154,16 +154,14 @@ fn get_img_type(base64_img: &str) -> Result<String, String> {
     let img_type = base64_img
         .split(';')
         .next()
-        .unwrap()
-        .split(':')
+        .and_then(|value| value.split(':').nth(1))
+        .ok_or_else(|| "invalid data URL".to_string())?;
+    let suffix = img_type
+        .split('/')
         .nth(1)
-        .unwrap()
-        .to_string();
-    println!("{}", img_type);
-    let suffix = img_type.split('/').nth(1).unwrap().to_string();
-    let suffixes = ["png", "webp", "jpg", "jpeg", "gif"];
-    if suffixes.contains(&suffix.as_str()) {
-        Ok(suffix)
+        .ok_or_else(|| "invalid data URL".to_string())?;
+    if ["png", "webp", "jpg", "jpeg", "gif"].contains(&suffix) {
+        Ok(suffix.to_string())
     } else {
         Err(format!("Unsupported image type: {}", suffix))
     }
@@ -373,5 +371,55 @@ mod tests {
 
         let response = app_with_token("secret").oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn get_img_type_accepts_supported_types() {
+        for mime in ["png", "webp", "jpg", "jpeg", "gif"] {
+            let input = format!("data:image/{};base64,AAAA", mime);
+            assert_eq!(get_img_type(&input).unwrap(), mime);
+        }
+    }
+
+    #[test]
+    fn get_img_type_rejects_unsupported_type() {
+        assert!(get_img_type("data:image/bmp;base64,AAAA").is_err());
+    }
+
+    #[test]
+    fn get_img_type_rejects_malformed_data_url() {
+        assert!(get_img_type("not-a-data-url").is_err());
+        assert!(get_img_type("data:image;base64,AAAA").is_err());
+    }
+
+    fn upload_request(body: &'static str) -> Request<Body> {
+        Request::builder()
+            .method("POST")
+            .uri("/upload")
+            .header("content-type", "application/json")
+            .header(header::AUTHORIZATION, "Bearer secret")
+            .body(Body::from(body))
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn upload_route_rejects_missing_comma() {
+        let request = upload_request(r#"{"base64_img":"data:image/png;base64"}"#);
+        let response = app_with_token("secret").oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn upload_route_rejects_unsupported_type() {
+        let request = upload_request(r#"{"base64_img":"data:image/bmp;base64,AAAA"}"#);
+        let response = app_with_token("secret").oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn upload_route_rejects_invalid_base64() {
+        let request = upload_request(r#"{"base64_img":"data:image/png;base64,@@@@"}"#);
+        let response = app_with_token("secret").oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 }
