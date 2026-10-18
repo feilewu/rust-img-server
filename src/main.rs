@@ -6,8 +6,7 @@ use axum::{
     response::IntoResponse,
     routing::get,
     routing::post,
-    AddExtensionLayer,
-    Json, Router,
+    AddExtensionLayer, Json, Router,
 };
 use chrono::Local;
 use hyper::{Body, Response, StatusCode};
@@ -34,7 +33,9 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 
 fn validate_token(raw: Option<String>) -> Result<TokenConfig, &'static str> {
     match raw {
-        Some(token) if !token.trim().is_empty() => Ok(TokenConfig(Arc::new(token.trim().to_string()))),
+        Some(token) if !token.trim().is_empty() => {
+            Ok(TokenConfig(Arc::new(token.trim().to_string())))
+        }
         _ => Err("UPLOAD_TOKEN environment variable is not set or empty"),
     }
 }
@@ -89,7 +90,7 @@ where
 }
 
 async fn serve_image(Path(path): Path<String>) -> Result<Response<Body>, String> {
-    if path.find("..").is_some(){
+    if path.find("..").is_some() {
         return Ok(hyper::Response::builder()
             .status(StatusCode::NOT_FOUND)
             .body(Body::from("Not Found"))
@@ -123,7 +124,8 @@ async fn upload(_auth: UploadAuth, data: String) -> Result<Json<UploadResp>, Sta
     let data: UploadReq = serde_json::from_str(&data).map_err(|_| StatusCode::BAD_REQUEST)?;
     let base64_img = data.base64_img;
     let suffix = get_img_type(&base64_img).map_err(|_| StatusCode::BAD_REQUEST)?;
-    let data = base64::decode(base64_img.split(",").nth(1).unwrap()).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let data = base64::decode(base64_img.split(",").nth(1).unwrap())
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
     let fmt = "%Y-%m-%d";
     let mut now = Local::now().format(fmt).to_string();
     if is_linux() {
@@ -148,15 +150,20 @@ async fn upload(_auth: UploadAuth, data: String) -> Result<Json<UploadResp>, Sta
     uri.push_str(&file_name);
 
     Ok(Json(UploadResp {
-        uri: format!(
-            "{}",
-            uri.to_string()
-        ),
+        uri: format!("{}", uri.to_string()),
     }))
 }
 
 fn get_img_type(base64_img: &String) -> Result<String, String> {
-    let img_type = base64_img.split(";").nth(0).unwrap().to_string().split(":").nth(1).unwrap().to_string();
+    let img_type = base64_img
+        .split(";")
+        .nth(0)
+        .unwrap()
+        .to_string()
+        .split(":")
+        .nth(1)
+        .unwrap()
+        .to_string();
     println!("{}", img_type);
     let suffix = img_type.split("/").nth(1).unwrap().to_string();
     let suffixes = vec![
@@ -172,7 +179,6 @@ fn get_img_type(base64_img: &String) -> Result<String, String> {
         Err(format!("Unsupported image type: {}", suffix))
     }
 }
-
 
 #[cfg(target_os = "windows")]
 fn is_linux() -> bool {
@@ -314,7 +320,9 @@ mod tests {
         Router::new()
             .route("/upload", post(upload))
             .route("/uploads/*path", get(serve_image))
-            .layer(AddExtensionLayer::new(TokenConfig(Arc::new(token.to_string()))))
+            .layer(AddExtensionLayer::new(TokenConfig(Arc::new(
+                token.to_string(),
+            ))))
     }
 
     #[tokio::test]
